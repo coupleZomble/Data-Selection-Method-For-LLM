@@ -25,6 +25,7 @@ def return_inital_point(split_sim_matrix,split_size):
     r,c = np.divmod(np.argmin(target_matrix),split_size)
     return r
 
+
 def get_similar(query_id, split_sim_matrix, pop_point_list=[]):
     # 提前创建布尔掩码 
     mask = np.ones(sum(matrix.shape[1] for matrix in split_sim_matrix), dtype=bool)
@@ -40,7 +41,7 @@ def get_similar(query_id, split_sim_matrix, pop_point_list=[]):
     # 创建字典
     pair = dict(zip(key, value))
     return pair
-
+# old version
 def kcenter_greedy(split_sim_matrix, k=500, seed = 144, inital_point_id = None):
     if inital_point_id is None:
     # inital center data
@@ -73,13 +74,75 @@ def kcenter_greedy(split_sim_matrix, k=500, seed = 144, inital_point_id = None):
     return centers_list,distence_list
 
 
+
+def compute_sim_vector(center_id, split_sim_matrix, mask):
+    """
+    计算给定中心点 center_id 对所有点的相似度向量，并对已选点设置无效值 (-np.inf)
+    """
+    # 拼接各个矩阵中 center_id 对应的向量
+    sim_vector = np.concatenate([matrix[center_id] for matrix in split_sim_matrix], axis=0)
+    sim_vector[~mask] = -np.inf  # 已经选中的点不参与比较
+    return sim_vector
+
+# new version
+def kcenter_greedy_optimized(split_sim_matrix, k=500, seed=144, inital_point_id=None):
+    """
+    优化版的 k-center 贪心算法：
+    - 使用 NumPy 数组维护所有点的最佳相似度（即与任一中心点之间的最大相似度）。
+    - 用布尔掩码记录哪些点已被选为中心。
+    """
+    # 计算总点数 N：所有矩阵列数之和
+    N = sum(matrix.shape[1] for matrix in split_sim_matrix)
+    
+    # 初始化布尔掩码，True 表示该点未被选中
+    mask = np.ones(N, dtype=bool)
+    
+    # 选取初始中心点
+    if inital_point_id is None:
+        # 这里假设第一个矩阵的行数可作为索引范围（可根据具体情况调整）
+        idxs = np.arange(split_sim_matrix[0].shape[0])
+        np.random.seed(seed)
+        init_center = np.random.choice(idxs)
+    else:
+        init_center = inital_point_id
+    
+    centers_list = [init_center]
+    mask[init_center] = False  # 标记已选中心点
+    
+    # 计算初始中心与所有点之间的相似度向量
+    best_similarity = compute_sim_vector(init_center, split_sim_matrix, mask)
+    distence_list = []
+    
+    for i in range(k - 1):
+        # 在未选点中找出相似度最小（即离中心最远）的点
+        valid_indices = np.where(mask)[0]
+        if valid_indices.size == 0:
+            break
+        new_center = valid_indices[np.argmin(best_similarity[valid_indices])]
+        dist = best_similarity[new_center]
+        distence_list.append(dist)
+        print(f'{i}, {dist}')
+        
+        # 更新中心点集合及掩码
+        centers_list.append(new_center)
+        mask[new_center] = False
+        
+        # 计算新中心与所有点的相似度向量
+        new_sim = compute_sim_vector(new_center, split_sim_matrix, mask)
+        # 更新所有未选点的最佳相似度：取当前值与新中心相似度的较大者
+        best_similarity[mask] = np.maximum(best_similarity[mask], new_sim[mask])
+    
+    print('finish')
+    return centers_list, distence_list
+
+
 def main(train_embedding_matrix, split_size):
     split_sim_matrix = split_simliarity_matrix(train_embedding_matrix=train_embedding_matrix,split_size=split_size) 
     print('finish split')
     intial_point = return_inital_point(split_sim_matrix,split_size)
     print(f'finish find init point: {intial_point}')
     k_size = train_embedding_matrix.shape[0]
-    kcenter_greedy(split_sim_matrix,
+    kcenter_greedy_optimized(split_sim_matrix,
                    k=k_size,
                    seed = 144,
                    inital_point_id = intial_point)
